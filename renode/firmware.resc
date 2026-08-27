@@ -1,0 +1,26 @@
+:name: STM32F4 firmware - serial fuzz target
+:description: Loads the parser firmware on an emulated STM32F4 Discovery.
+#
+# Interactive use:
+#   renode renode/firmware.resc
+# then type packets into the USART2 analyzer window, e.g. a benign frame.
+#
+# CI uses renode/fuzz_target.robot instead (headless, asserts on output).
+
+using sysbus
+
+$elf ?= @firmware/build/firmware.elf
+
+mach create "stm32f4"
+machine LoadPlatformDescription @platforms/boards/stm32f4_discovery.repl
+
+sysbus LoadELF $elf
+
+showAnalyzer sysbus.usart2
+
+macro reset
+"""
+    sysbus LoadELF $elf
+"""
+
+echo "Loaded firmware. 'start' to run; interact on USART2."

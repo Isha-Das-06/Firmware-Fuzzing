@@ -1,0 +1,21 @@
+# Build outputs
+firmware/build/
+fuzz/build/
+
+# Fuzzer working dirs and crash drops
+fuzz/t/
+fuzz/disc/
+crash-*
+fuzz/crash-*
+!fuzz/crash/
+leak-*
+oom-*
+timeout-*
+
+# Renode / Robot test artifacts
+snapshots/
+logs/
+robot_output.xml
+log.html
+report.html
+*.save

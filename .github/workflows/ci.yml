@@ -1,0 +1,63 @@
+name: firmware-fuzz
+
+# Gate every push and PR on: (1) the native fuzzer finding a crash in the
+# parser, and (2) the crash reproducing on the emulated board in Renode.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      fuzz_seconds:
+        description: "Fuzzing budget (seconds)"
+        default: "60"
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    env:
+      FUZZ_SECONDS: ${{ github.event.inputs.fuzz_seconds || '60' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Build the reproducible toolchain/emulator image (same one you run
+      # locally). Cached across runs to keep CI fast.
+      - name: Build environment image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          tags: fw-fuzz:ci
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Cross-compile firmware (ARM Cortex-M)
+        run: docker run --rm -v "$PWD:/work" -w /work fw-fuzz:ci make firmware
+
+      # THE FUZZ GATE. libFuzzer + ASan on the exact parser the firmware runs.
+      # A crash makes libFuzzer exit non-zero -> this step (and CI) goes red.
+      - name: Fuzz the parser (fails on crash)
+        run: docker run --rm -v "$PWD:/work" -w /work fw-fuzz:ci make fuzz-run FUZZ_SECONDS="$FUZZ_SECONDS"
+
+      # THE ON-TARGET GATE. Replays oversized input against the real firmware
+      # running on an emulated STM32F4. A correct firmware still answers OK:;
+      # the vulnerable one trips its crash trap and this step goes red, with
+      # the !!FAULT:STACK-SMASH!! marker in the Renode log below.
+      - name: Reproduce on emulated board (Renode)
+        run: docker run --rm -v "$PWD:/work" -w /work fw-fuzz:ci make renode
+
+      # On failure, keep the evidence: the crashing input the fuzzer saved and
+      # the Renode UART/CPU logs showing the on-target fault.
+      - name: Upload crash evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crash-evidence
+          path: |
+            fuzz/crash-*
+            fuzz/build/fuzz_parser
+            logs/**
+            robot_output.xml
+            report.html
+            log.html
+          if-no-files-found: ignore
